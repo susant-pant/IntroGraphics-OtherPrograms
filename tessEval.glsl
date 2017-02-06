@@ -1,29 +1,34 @@
-//TES transforms new vertices. Runs once for all output vertices
-
 #version 410
-layout(isolines) in; // Controls how tesselator creates new geometry
+layout(isolines) in;
 
-in vec3 teColour[]; // input colours
+in vec3 teColour[];
+//in gl_in[];
 
-out vec3 Colour; // colours to fragment shader
+out vec3 Colour;
+
+uniform sampler2D heightmap;
 
 void main()
 {
-    // gl_TessCoord variable lets us know where we are within the patch.
-    // In this case, the primitive mode is isolines, so gl_TessCoord.x is distance along curve.
-    // if the primitive mode were triangles, gl_TessCoord would be a barycentric coordinate.
-    float u = gl_TessCoord.x;
+	float u = gl_TessCoord.x;
+	float v = gl_TessCoord.y;
 
-    // order 1 bernstein basis
-    float b0 = 1.0-u;
-    float b1 = u;
+	vec3 startColor = vec3(0.0, 0.0, 0.0);
+	vec3 endColor = vec3(1,1,1);
 
-    // Just like bezier sum
-    gl_Position =pow(b0,3) * gl_in[0].gl_Position +
-					3 * b0 * b0 * b1 * gl_in[0].gl_Position +
-          3 * b0 * b1 * b1 * gl_in[1].gl_Position +
-					pow(b1,3) * gl_in[2].gl_Position;
+	float b0 = 1.0-u;
+	float b1 = u;
+	
+	float c0 = 1.0 - v;
+	float c1 = v;
 
-    // Determine colours for new points
-    Colour 	= teColour[0];
+	gl_Position = b0*gl_in[0].gl_Position +
+					b1*gl_in[1].gl_Position;
+					
+	//gl_Position += (3*v + (1-v)*(1 - texture(heightmap, vec2(u, v)).r))*vec4(0,0.25,0,0);
+	gl_Position += (3*v + (1-v) * texture(heightmap, vec2(u, v)).r) * vec4(0,0.25,0,0);
+	//gl_Position += texture(heightmap, vec2(u, 0.5)).r * vec4(0,1,0,0);
+	
+	Colour = pow(c0,2)*startColor + 2*c0 * c1* teColour[1] + pow(c1,2)*endColor;
+
 }

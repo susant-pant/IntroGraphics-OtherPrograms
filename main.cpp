@@ -23,21 +23,56 @@
 #define GL_GLEXT_PROTOTYPES
 #include <GLFW/glfw3.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb/stb_image_write.h"
+
+#define PI 3.14159265359
+
 using namespace std;
 using namespace glm;
 
 //Forward definitions
-bool CheckGLErrors();
+bool CheckGLErrors(string location);
 void QueryGLVersion();
 string LoadSource(const string &filename);
 GLuint CompileShader(GLenum shaderType, const string &source);
-GLuint LinkProgram(GLuint vertexShader, GLuint TCSshader, GLuint TESshader, GLuint fragmentShader);
+GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader);
 
+vec2 mousePos;
+GLFWwindow* window = 0;
+
+// --------------------------------------------------------------------------
+// GLFW callback functions
+
+// reports GLFW errors
+void ErrorCallback(int error, const char* description)
+{
+    cout << "GLFW ERROR " << error << ":" << endl;
+    cout << description << endl;
+}
+
+// handles keyboard input events
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, GL_TRUE);
+}
+
+
+
+
+//==========================================================================
+// TUTORIAL STUFF
+
+
+//vec2 and vec3 are part of the glm math library. 
+//Include in your own project by putting the glm directory in your project, 
+//and including glm/glm.hpp as I have at the top of the file.
+//"using namespace glm;" will allow you to avoid writing everyting as glm::vec2
 vector<vec2> points;
-vector<vec3> colors;
-
-vector<vec2> curves;
-vector<vec3> whites;
+vector<vec2> uvs;
 
 //Structs are simply acting as namespaces
 //Access the values like so: VAO::LINES
@@ -103,19 +138,19 @@ bool initVAO()
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO::COLOR]);
 	glVertexAttribPointer(
 		1,
-		3,
+		2,
 		GL_FLOAT,
 		GL_FALSE,
-		sizeof(vec3),
+		sizeof(vec2),
 		(void*)0
 		);	
 
-	return !CheckGLErrors();		//Check for errors in initialize
+	return !CheckGLErrors("initVAO");		//Check for errors in initialize
 }
 
 
 //Loads buffers with data
-bool loadBuffer(const vector<vec2>& points, const vector<vec3>& colors)
+bool loadBuffer(const vector<vec2>& points, const vector<vec2>& colors)
 {
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO::POINTS]);
 	glBufferData(
@@ -129,12 +164,12 @@ bool loadBuffer(const vector<vec2>& points, const vector<vec3>& colors)
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO::COLOR]);
 	glBufferData(
 		GL_ARRAY_BUFFER,
-		sizeof(vec3)*colors.size(),
-		&colors[0],
+		sizeof(vec2)*uvs.size(),
+		&uvs[0],
 		GL_STATIC_DRAW
 		);
 
-	return !CheckGLErrors();	
+	return !CheckGLErrors("loadBuffer");	
 }
 
 //Compile and link shaders, storing the program ID in shader array
@@ -142,96 +177,137 @@ bool initShader()
 {	
 	string vertexSource = LoadSource("vertex.glsl");		//Put vertex file text into string
 	string fragmentSource = LoadSource("fragment.glsl");		//Put fragment file text into string
-	string TCSSource = LoadSource("tessControl.glsl");
-	string TESSource = LoadSource("tessEval.glsl");
 
 	GLuint vertexID = CompileShader(GL_VERTEX_SHADER, vertexSource);
 	GLuint fragmentID = CompileShader(GL_FRAGMENT_SHADER, fragmentSource);
-	GLuint TCSID = CompileShader(GL_TESS_CONTROL_SHADER, TCSSource);
-	GLuint TESID = CompileShader(GL_TESS_EVALUATION_SHADER, TESSource);
 	
-	shader[SHADER::LINE] = LinkProgram(vertexID, TCSID, TESID, fragmentID);	//Link and store program ID in shader array
+	shader[SHADER::LINE] = LinkProgram(vertexID, fragmentID);	//Link and store program ID in shader array
 
-	return !CheckGLErrors();
+	return !CheckGLErrors("initShader");
 }
 
-float phi = (1.f + float(sqrt(5))) / 2.f;
-vec2 zero(0.f, 0.f);
-vec3 gold(1.f, 0.8f, 0.f);
-vec3 white(1.f, 1.f, 1.f);
-int depth = 0;
-
-void recurseRectangle(vec2 rightUp, float newHeight, int recursion, vec2 oldRightDown, vec2 oldRightUp) {
-	float newWidth = newHeight * phi;
-	int orient = recursion % 4;
-	
-	vec2 rightDown; vec2 leftUp; vec2 leftDown;
-	
-	if (recursion <= depth) {
-		switch(orient){
-			case 0 :
-				rightDown = vec2(rightUp.x, rightUp.y - newHeight);
-				leftUp = vec2(rightUp.x - newWidth, rightUp.y);
-				leftDown = vec2(leftUp.x, rightDown.y);
-				break;
-			case 1 :
-				rightDown = vec2(rightUp.x + newHeight, rightUp.y);
-				leftUp = vec2(rightUp.x, rightUp.y - newWidth);
-				leftDown = vec2(rightDown.x, leftUp.y);
-				break;
-			case 2 :
-				rightDown = vec2(rightUp.x, rightUp.y + newHeight);
-				leftUp = vec2(rightUp.x + newWidth, rightUp.y);
-				leftDown = vec2(leftUp.x, rightDown.y);
-				break;
-			case 3 :
-				rightDown = vec2(rightUp.x - newHeight, rightUp.y);
-				leftUp = vec2(rightUp.x, rightUp.y + newWidth);
-				leftDown = vec2(rightDown.x, leftUp.y);
-				break;
-		}
-	
-		points.push_back(rightDown); colors.push_back(gold);
-		points.push_back(rightUp); colors.push_back(gold);
-		points.push_back(rightUp); colors.push_back(gold);
-		
-		points.push_back(rightUp); colors.push_back(gold);
-		points.push_back(leftUp); colors.push_back(gold);
-		points.push_back(leftUp); colors.push_back(gold);
-		
-		points.push_back(leftUp); colors.push_back(gold);
-		points.push_back(leftDown); colors.push_back(gold);
-		points.push_back(leftDown); colors.push_back(gold);
-		
-		points.push_back(leftDown); colors.push_back(gold);
-		points.push_back(rightDown); colors.push_back(gold);
-		points.push_back(rightDown); colors.push_back(gold);
-		
-		if ((recursion) != 0){
-			curves.push_back(oldRightDown); whites.push_back(white);
-			curves.push_back(oldRightUp); whites.push_back(white);
-			curves.push_back(rightDown); whites.push_back(white);
-		}
-	
-		recursion++;
-		recurseRectangle(leftUp, newWidth - newHeight, recursion, rightDown, rightUp);
-	}
-}
-
-void generateRectangle()
+//For reference:
+//	https://open.gl/textures
+GLuint createTexture(const char* filename)
 {
-	//Make sure vectors are empty
-	points.clear();
-	colors.clear();
-	curves.clear();
-	whites.clear();
+	int components;
+	GLuint texID;
+	int tWidth, tHeight;
+
+	//stbi_set_flip_vertically_on_load(true);
+	unsigned char* data = stbi_load(filename, &tWidth, &tHeight, &components, 0);
 	
-	float height = 1.f;
-	vec2 rightUp(phi/2.f, height/2.f);
-	vec2 rightDown(phi/2.f, height/-2.f);
-	int recursion = 0;
+	if(data != NULL)
+	{
+		glGenTextures(1, &texID);
+		glBindTexture(GL_TEXTURE_2D, texID);
+
+		if(components==3)
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, tWidth, tHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+		else if(components==4)
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tWidth, tHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 	
-	recurseRectangle(rightUp, height, recursion, rightDown, rightUp);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		//Clean up
+		glBindTexture(GL_TEXTURE_2D, 0);
+		stbi_image_free(data);
+
+		return texID;
+	} 
+	
+	return 0;	//Error
+}
+
+//Use program before loading texture
+//	texUnit can be - GL_TEXTURE0, GL_TEXTURE1, etc...
+bool loadTexture(GLuint texID, GLuint texUnit, GLuint program, const char* uniformName)
+{
+	glActiveTexture(texUnit);
+	glBindTexture(GL_TEXTURE_2D, texID);
+	
+	GLuint uniformLocation = glGetUniformLocation(program, uniformName);
+	glUniform1i(uniformLocation, 0);
+		
+	return !CheckGLErrors("loadTexture");
+}
+
+void generateSquare(float width)
+{
+	vec2 p00 = vec2(
+		-width*0.5f,
+		width*0.5f);
+	vec2 uv00 = vec2(
+		0.f,
+		0.f);
+
+	vec2 p01 = vec2(
+		width*0.5f,
+		width*0.5f);
+	vec2 uv01 = vec2(
+		1.f,
+		0.f);
+
+	vec2 p10 = vec2(
+		-width*0.5f,
+		-width*0.5f);
+	vec2 uv10 = vec2(
+		0.f,
+		1.f);
+	
+	vec2 p11 = vec2(
+		width*0.5f,
+		-width*0.5f);
+	vec2 uv11 = vec2(
+		1.f,
+		1.f);
+
+	//Triangle 1
+	points.push_back(p00);
+	points.push_back(p10);
+	points.push_back(p01);
+	
+	uvs.push_back(uv00);
+	uvs.push_back(uv10);
+	uvs.push_back(uv01);
+
+	//Triangle 2
+	points.push_back(p11);
+	points.push_back(p01);
+	points.push_back(p10);
+
+	uvs.push_back(uv11);
+	uvs.push_back(uv01);
+	uvs.push_back(uv10);
+}
+
+
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	
+	
+}
+
+bool loadUniforms()
+{
+	//Get mouse pixel coordinates
+	double x, y;
+	glfwGetCursorPos(window, &x, &y);
+
+	int vp [4];
+	glGetIntegerv(GL_VIEWPORT, vp);		//Get viewport dimensions- {x offset, y offset, width, height}
+
+
+	//For more uniforms - look up https://www.opengl.org/sdk/docs/man/html/glUniform.xhtml
+	//Use the glUniform call that fits the type you're loading
+	GLint uniformLocation = glGetUniformLocation(shader[SHADER::LINE], "mousePos");
+	glUniform2f(uniformLocation,
+		(float)(x/(double)vp[2]), (float)(y/(double)vp[3]));	//Normalize coordinates between 0 and 1
+
+	return !CheckGLErrors("loadUniforms");
 }
 
 //Initialization
@@ -242,9 +318,10 @@ void initGL()
 	initShader();		//Create shader and store program ID
 
 	initVAO();			//Describe setup of Vertex Array Objects and Vertex Buffer Objects
-	
-	generateRectangle();
-	loadBuffer(points, colors);
+
+	//Call these two (or equivalents) every time you change geometry
+	generateSquare(2.f);
+	loadBuffer(points, uvs);	//Load geometry into buffers
 }
 
 //Draws buffers to screen
@@ -252,42 +329,24 @@ void render()
 {
 	glClearColor(0.f, 0.f, 0.f, 0.f);		//Color to clear the screen with (R, G, B, Alpha)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);		//Clear color and depth buffers (Haven't covered yet)
-	
-	loadBuffer(points, colors);
+
+	//Don't need to call these on every draw, so long as they don't change
 	glUseProgram(shader[SHADER::LINE]);		//Use LINE program
 	glBindVertexArray(vao[VAO::LINES]);		//Use the LINES vertex array
-	glDrawArrays(GL_PATCHES, 0, points.size());
-	
-	loadBuffer(curves, whites);
-	glUseProgram(shader[SHADER::LINE]);		//Use LINE program
-	glBindVertexArray(vao[VAO::LINES]);		//Use the LINES vertex array
-	glDrawArrays(GL_PATCHES, 0, curves.size());
+
+	loadUniforms();
+
+	glDrawArrays(
+			GL_TRIANGLES,		//What shape we're drawing	- GL_TRIANGLES, GL_LINES, GL_POINTS, GL_QUADS, GL_TRIANGLE_STRIP
+			0,						//Starting index
+			points.size()		//How many vertices
+			);
+
+	CheckGLErrors("render");
 }
 
-// --------------------------------------------------------------------------
-// GLFW callback functions
 
-// reports GLFW errors
-void ErrorCallback(int error, const char* description)
-{
-    cout << "GLFW ERROR " << error << ":" << endl;
-    cout << description << endl;
-}
 
-// handles keyboard input events
-void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, GL_TRUE);
-    else if (key == GLFW_KEY_UP && action == GLFW_PRESS){
-		depth++;
-		generateRectangle();
-	}
-	else if (key == GLFW_KEY_DOWN && action == GLFW_PRESS){
-		depth = (0<(depth-1))?(depth-1):0;
-		generateRectangle();
-	}
-}
 
 // ==========================================================================
 // PROGRAM ENTRY POINT
@@ -302,12 +361,11 @@ int main(int argc, char *argv[])
     glfwSetErrorCallback(ErrorCallback);
 
     // attempt to create a window with an OpenGL 4.1 core profile context
-    GLFWwindow *window = 0;
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    window = glfwCreateWindow(512, 512, "GOLDEN RECTANGLE", 0, 0);
+    window = glfwCreateWindow(1024, 1024, "CPSC 453 OpenGL Boilerplate", 0, 0);
     if (!window) {
         cout << "Program failed to create GLFW window, TERMINATING" << endl;
         glfwTerminate();
@@ -315,31 +373,33 @@ int main(int argc, char *argv[])
     }
 
     // set keyboard callback function and make our context current (active)
-    glfwSetKeyCallback(window, KeyCallback);
+    glfwSetKeyCallback(window, key_callback);
     glfwMakeContextCurrent(window);
 
     // query and print out information about our OpenGL environment
     QueryGLVersion();
+
 	initGL();
-	
-	glPatchParameteri(GL_PATCH_VERTICES, 3);
 
     // run an event-triggered main loop
     while (!glfwWindowShouldClose(window))
     {
         // call function to draw our scene
         render();
+
         // scene is rendered to the back buffer, so swap to front for display
         glfwSwapBuffers(window);
+
         // sleep until next event before drawing again
         glfwWaitEvents();
 	}
-	// clean up allocated resources before exit
-	deleteIDs();
-	glfwDestroyWindow(window);
-	glfwTerminate();
 
-	return 0;
+	// clean up allocated resources before exit
+   deleteIDs();
+	glfwDestroyWindow(window);
+   glfwTerminate();
+
+   return 0;
 }
 
 // ==========================================================================
@@ -360,7 +420,7 @@ void QueryGLVersion()
          << "on renderer [ " << renderer << " ]" << endl;
 }
 
-bool CheckGLErrors()
+bool CheckGLErrors(string location)
 {
     bool error = false;
     for (GLenum flag = glGetError(); flag != GL_NO_ERROR; flag = glGetError())
@@ -368,15 +428,15 @@ bool CheckGLErrors()
         cout << "OpenGL ERROR:  ";
         switch (flag) {
         case GL_INVALID_ENUM:
-            cout << "GL_INVALID_ENUM" << endl; break;
+            cout << location << ": " << "GL_INVALID_ENUM" << endl; break;
         case GL_INVALID_VALUE:
-            cout << "GL_INVALID_VALUE" << endl; break;
+            cout << location << ": " << "GL_INVALID_VALUE" << endl; break;
         case GL_INVALID_OPERATION:
-            cout << "GL_INVALID_OPERATION" << endl; break;
+            cout << location << ": " << "GL_INVALID_OPERATION" << endl; break;
         case GL_INVALID_FRAMEBUFFER_OPERATION:
-            cout << "GL_INVALID_FRAMEBUFFER_OPERATION" << endl; break;
+            cout << location << ": " << "GL_INVALID_FRAMEBUFFER_OPERATION" << endl; break;
         case GL_OUT_OF_MEMORY:
-            cout << "GL_OUT_OF_MEMORY" << endl; break;
+            cout << location << ": " << "GL_OUT_OF_MEMORY" << endl; break;
         default:
             cout << "[unknown error code]" << endl;
         }
@@ -437,15 +497,13 @@ GLuint CompileShader(GLenum shaderType, const string &source)
 }
 
 // creates and returns a program object linked from vertex and fragment shaders
-GLuint LinkProgram(GLuint vertexShader, GLuint TCSshader, GLuint TESshader, GLuint fragmentShader)
+GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader)
 {
     // allocate program object name
     GLuint programObject = glCreateProgram();
 
     // attach provided shader objects to this program
     if (vertexShader)   glAttachShader(programObject, vertexShader);
-    if (TCSshader) glAttachShader(programObject, TCSshader);
-    if (TESshader) glAttachShader(programObject, TESshader);
     if (fragmentShader) glAttachShader(programObject, fragmentShader);
 
     // try linking the program with given attachments

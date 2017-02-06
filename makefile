@@ -17,11 +17,8 @@ ifeq ($(OS_NAME),Linux)
 		-lOpenGL
 endif
 
-target a.out: dragon.o
-	g++ -std=c++11 main.cpp -Wall -Wpragmas $(LIBS) dragon.o -o a.out
-
-dragon.o: dragon.cpp dragon.h
-	g++ -std=c++11 -c dragon.cpp
+target a.out:
+	g++ -std=c++11 main.cpp -Wall -Wpragmas $(LIBS) -o a.out
 
 clean:
-	rm *.o a.out
+	rm *.o

@@ -23,11 +23,6 @@
 #define GL_GLEXT_PROTOTYPES
 #include <GLFW/glfw3.h>
 
-
-#include "dragon.h"
-
-#define PI 3.14159265359
-
 using namespace std;
 using namespace glm;
 
@@ -36,40 +31,13 @@ bool CheckGLErrors();
 void QueryGLVersion();
 string LoadSource(const string &filename);
 GLuint CompileShader(GLenum shaderType, const string &source);
-GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader);
+GLuint LinkProgram(GLuint vertexShader, GLuint TCSshader, GLuint TESshader, GLuint fragmentShader);
 
-int dragonCurveIterations = 0;
-
-// --------------------------------------------------------------------------
-// GLFW callback functions
-
-// reports GLFW errors
-void ErrorCallback(int error, const char* description)
-{
-    cout << "GLFW ERROR " << error << ":" << endl;
-    cout << description << endl;
-}
-
-// handles keyboard input events
-void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, GL_TRUE);
-}
-
-
-
-
-//==========================================================================
-// TUTORIAL STUFF
-
-
-//vec2 and vec3 are part of the glm math library. 
-//Include in your own project by putting the glm directory in your project, 
-//and including glm/glm.hpp as I have at the top of the file.
-//"using namespace glm;" will allow you to avoid writing everyting as glm::vec2
 vector<vec2> points;
 vector<vec3> colors;
+
+vector<vec2> curves;
+vector<vec3> whites;
 
 //Structs are simply acting as namespaces
 //Access the values like so: VAO::LINES
@@ -174,107 +142,96 @@ bool initShader()
 {	
 	string vertexSource = LoadSource("vertex.glsl");		//Put vertex file text into string
 	string fragmentSource = LoadSource("fragment.glsl");		//Put fragment file text into string
+	string TCSSource = LoadSource("tessControl.glsl");
+	string TESSource = LoadSource("tessEval.glsl");
 
 	GLuint vertexID = CompileShader(GL_VERTEX_SHADER, vertexSource);
 	GLuint fragmentID = CompileShader(GL_FRAGMENT_SHADER, fragmentSource);
+	GLuint TCSID = CompileShader(GL_TESS_CONTROL_SHADER, TCSSource);
+	GLuint TESID = CompileShader(GL_TESS_EVALUATION_SHADER, TESSource);
 	
-	shader[SHADER::LINE] = LinkProgram(vertexID, fragmentID);	//Link and store program ID in shader array
+	shader[SHADER::LINE] = LinkProgram(vertexID, TCSID, TESID, fragmentID);	//Link and store program ID in shader array
 
 	return !CheckGLErrors();
 }
 
+float phi = (1.f + float(sqrt(5))) / 2.f;
+vec2 zero(0.f, 0.f);
+vec3 gold(1.f, 0.8f, 0.f);
+vec3 white(1.f, 1.f, 1.f);
+int depth = 0;
 
-//Generate Circle
-// Most of your work will be making new functions like this
-// ie: generateSpiral, generateSierpinski, etc...
-void generateCircle(float radius, int numPoints)
+void recurseRectangle(vec2 rightUp, float newHeight, int recursion, vec2 oldRightDown, vec2 oldRightUp) {
+	float newWidth = newHeight * phi;
+	int orient = recursion % 4;
+	
+	vec2 rightDown; vec2 leftUp; vec2 leftDown;
+	
+	if (recursion <= depth) {
+		switch(orient){
+			case 0 :
+				rightDown = vec2(rightUp.x, rightUp.y - newHeight);
+				leftUp = vec2(rightUp.x - newWidth, rightUp.y);
+				leftDown = vec2(leftUp.x, rightDown.y);
+				break;
+			case 1 :
+				rightDown = vec2(rightUp.x + newHeight, rightUp.y);
+				leftUp = vec2(rightUp.x, rightUp.y - newWidth);
+				leftDown = vec2(rightDown.x, leftUp.y);
+				break;
+			case 2 :
+				rightDown = vec2(rightUp.x, rightUp.y + newHeight);
+				leftUp = vec2(rightUp.x + newWidth, rightUp.y);
+				leftDown = vec2(leftUp.x, rightDown.y);
+				break;
+			case 3 :
+				rightDown = vec2(rightUp.x - newHeight, rightUp.y);
+				leftUp = vec2(rightUp.x, rightUp.y + newWidth);
+				leftDown = vec2(rightDown.x, leftUp.y);
+				break;
+		}
+	
+		points.push_back(rightDown); colors.push_back(gold);
+		points.push_back(rightUp); colors.push_back(gold);
+		points.push_back(rightUp); colors.push_back(gold);
+		
+		points.push_back(rightUp); colors.push_back(gold);
+		points.push_back(leftUp); colors.push_back(gold);
+		points.push_back(leftUp); colors.push_back(gold);
+		
+		points.push_back(leftUp); colors.push_back(gold);
+		points.push_back(leftDown); colors.push_back(gold);
+		points.push_back(leftDown); colors.push_back(gold);
+		
+		points.push_back(leftDown); colors.push_back(gold);
+		points.push_back(rightDown); colors.push_back(gold);
+		points.push_back(rightDown); colors.push_back(gold);
+		
+		if ((recursion) != 0){
+			curves.push_back(oldRightDown); whites.push_back(white);
+			curves.push_back(oldRightUp); whites.push_back(white);
+			curves.push_back(rightDown); whites.push_back(white);
+		}
+	
+		recursion++;
+		recurseRectangle(leftUp, newWidth - newHeight, recursion, rightDown, rightUp);
+	}
+}
+
+void generateRectangle()
 {
 	//Make sure vectors are empty
 	points.clear();
 	colors.clear();
-
-	const float MAX_ROTATION = 2*3.14159f;
-
-	float u = 0.f;
-	float ustep = 1.f/((float)numPoints - 1);		//Size of steps so u = 1 at end of loop
-
-	vec3 startColor(1.f, 0.f, 0.f);		//Initial color
-	vec3 endColor(0.f, 0.f, 1.f);			//Final color
+	curves.clear();
+	whites.clear();
 	
-//	points.push_back(vec2(0, 0));		//Uncomment for spiral		
-//	colors.push_back(startColor);
-
-	//Fill vectors with points/colors
-	for(int i=0; i<numPoints; i++)
-	{
-		u+=ustep;						//Increment u
-		points.push_back(vec2(
-			radius*cos(MAX_ROTATION*u),		//x coordinate
-			radius*sin(MAX_ROTATION*u))		//y coordinate
-			);
-
-		colors.push_back(startColor*(1-u) + endColor*u);	//Linearly blend start and end color
-	}
-}
-
-void generateDragonCurve(int iterations)
-{
-	vector<Line> lines;
-
-	vec2 pointB = vec2(
-		cos(PI*0.25f),
-		sin(PI*0.25f)
-		)*0.5f;
-	vec2 pointA = vec2(
-		cos(-0.75f*PI),
-		sin(-0.75f*PI)
-		)*0.5f;
-
-	points.clear();
-	colors.clear();
-
-	Line l1 = Line(pointA, pointB);
+	float height = 1.f;
+	vec2 rightUp(phi/2.f, height/2.f);
+	vec2 rightDown(phi/2.f, height/-2.f);
+	int recursion = 0;
 	
-	lines.push_back(l1);
-
-	//Generate dragon curve from points
-	//To do
-
-	for(int i=0; i<iterations; i++) {
-		vector<Line> newLines;
-		for(int j=0; j<lines.size(); j++) {
-			Line a,b;
-			dragonCurveSplit(lines[j], &a, &b);
-			
-			newLines.push_back(a);
-			newLines.push_back(b);
-		}
-		lines.swap(newLines);
-	}
-
-	for(int i=0; i<lines.size(); i++)
-	{
-		Line l = lines[i];
-		points.push_back(l.a);
-		points.push_back(l.b);
-
-		colors.push_back(vec3(0, 0, 1));
-		colors.push_back(vec3(0, 0, 1));
-	}
-}
-
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-	if(action == GLFW_PRESS)
-	{
-		if(key == GLFW_KEY_D)
-			dragonCurveIterations++;
-		else if(key == GLFW_KEY_F)
-			dragonCurveIterations = std::max(dragonCurveIterations-1, 0);	
-		
-		generateDragonCurve(dragonCurveIterations);
-		loadBuffer(points, colors);
-	}
+	recurseRectangle(rightUp, height, recursion, rightDown, rightUp);
 }
 
 //Initialization
@@ -285,11 +242,9 @@ void initGL()
 	initShader();		//Create shader and store program ID
 
 	initVAO();			//Describe setup of Vertex Array Objects and Vertex Buffer Objects
-
-	//Call these two (or equivalents) every time you change geometry
-//	generateCircle(1.f, 200);		//Create geometry - CHANGE THIS FOR DIFFERENT SCENES
-	generateDragonCurve(0);
-	loadBuffer(points, colors);	//Load geometry into buffers
+	
+	generateRectangle();
+	loadBuffer(points, colors);
 }
 
 //Draws buffers to screen
@@ -297,20 +252,42 @@ void render()
 {
 	glClearColor(0.f, 0.f, 0.f, 0.f);		//Color to clear the screen with (R, G, B, Alpha)
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);		//Clear color and depth buffers (Haven't covered yet)
-
-	//Don't need to call these on every draw, so long as they don't change
+	
+	loadBuffer(points, colors);
 	glUseProgram(shader[SHADER::LINE]);		//Use LINE program
 	glBindVertexArray(vao[VAO::LINES]);		//Use the LINES vertex array
-
-	glDrawArrays(
-			GL_LINES,		//What shape we're drawing	- GL_TRIANGLES, GL_LINES, GL_POINTS, GL_QUADS, GL_TRIANGLE_STRIP
-			0,						//Starting index
-			points.size()		//How many vertices
-			);
+	glDrawArrays(GL_PATCHES, 0, points.size());
+	
+	loadBuffer(curves, whites);
+	glUseProgram(shader[SHADER::LINE]);		//Use LINE program
+	glBindVertexArray(vao[VAO::LINES]);		//Use the LINES vertex array
+	glDrawArrays(GL_PATCHES, 0, curves.size());
 }
 
+// --------------------------------------------------------------------------
+// GLFW callback functions
 
+// reports GLFW errors
+void ErrorCallback(int error, const char* description)
+{
+    cout << "GLFW ERROR " << error << ":" << endl;
+    cout << description << endl;
+}
 
+// handles keyboard input events
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, GL_TRUE);
+    else if (key == GLFW_KEY_UP && action == GLFW_PRESS){
+		depth++;
+		generateRectangle();
+	}
+	else if (key == GLFW_KEY_DOWN && action == GLFW_PRESS){
+		depth = (0<(depth-1))?(depth-1):0;
+		generateRectangle();
+	}
+}
 
 // ==========================================================================
 // PROGRAM ENTRY POINT
@@ -330,7 +307,7 @@ int main(int argc, char *argv[])
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    window = glfwCreateWindow(512, 512, "CPSC 453 OpenGL Boilerplate", 0, 0);
+    window = glfwCreateWindow(512, 512, "GOLDEN RECTANGLE", 0, 0);
     if (!window) {
         cout << "Program failed to create GLFW window, TERMINATING" << endl;
         glfwTerminate();
@@ -338,33 +315,31 @@ int main(int argc, char *argv[])
     }
 
     // set keyboard callback function and make our context current (active)
-    glfwSetKeyCallback(window, key_callback);
+    glfwSetKeyCallback(window, KeyCallback);
     glfwMakeContextCurrent(window);
 
     // query and print out information about our OpenGL environment
     QueryGLVersion();
-
 	initGL();
+	
+	glPatchParameteri(GL_PATCH_VERTICES, 3);
 
     // run an event-triggered main loop
     while (!glfwWindowShouldClose(window))
     {
         // call function to draw our scene
         render();
-
         // scene is rendered to the back buffer, so swap to front for display
         glfwSwapBuffers(window);
-
         // sleep until next event before drawing again
         glfwWaitEvents();
 	}
-
 	// clean up allocated resources before exit
-   deleteIDs();
+	deleteIDs();
 	glfwDestroyWindow(window);
-   glfwTerminate();
+	glfwTerminate();
 
-   return 0;
+	return 0;
 }
 
 // ==========================================================================
@@ -462,13 +437,15 @@ GLuint CompileShader(GLenum shaderType, const string &source)
 }
 
 // creates and returns a program object linked from vertex and fragment shaders
-GLuint LinkProgram(GLuint vertexShader, GLuint fragmentShader)
+GLuint LinkProgram(GLuint vertexShader, GLuint TCSshader, GLuint TESshader, GLuint fragmentShader)
 {
     // allocate program object name
     GLuint programObject = glCreateProgram();
 
     // attach provided shader objects to this program
     if (vertexShader)   glAttachShader(programObject, vertexShader);
+    if (TCSshader) glAttachShader(programObject, TCSshader);
+    if (TESshader) glAttachShader(programObject, TESshader);
     if (fragmentShader) glAttachShader(programObject, fragmentShader);
 
     // try linking the program with given attachments
